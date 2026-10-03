@@ -57,9 +57,40 @@ def _gemini_verify(image_bytes: bytes, label: str, api_key: str, timeout: int):
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
         parsed = json.loads(text)
-        result["confirmed"] = bool(parsed.get("confirmed", False))
-        result["confidence"] = float(parsed.get("confidence", 0))
-        result["reason"] = str(parsed.get("reason", ""))
+
+        if not isinstance(parsed, dict):
+            raise ValueError("Gemini response must be a JSON object")
+
+        required_fields = {"confirmed", "confidence", "reason"}
+        missing_fields = required_fields - parsed.keys()
+        if missing_fields:
+            raise ValueError(
+                "Gemini response missing required field(s): "
+                + ", ".join(sorted(missing_fields))
+            )
+
+        confirmed = parsed["confirmed"]
+        if not isinstance(confirmed, bool):
+            raise ValueError("Gemini response field 'confirmed' must be a boolean")
+
+        confidence = parsed["confidence"]
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            raise ValueError("Gemini response field 'confidence' must be a number")
+
+        if not 0 <= confidence <= 1:
+            raise ValueError(
+                "Gemini response field 'confidence' must be between 0 and 1"
+            )
+
+        reason = parsed["reason"]
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                "Gemini response field 'reason' must be a non-empty string"
+            )
+
+        result["confirmed"] = confirmed
+        result["confidence"] = float(confidence)
+        result["reason"] = reason
     except (requests.exceptions.RequestException, KeyError, IndexError, ValueError, json.JSONDecodeError) as e:
         result["error"] = str(e)
     return result

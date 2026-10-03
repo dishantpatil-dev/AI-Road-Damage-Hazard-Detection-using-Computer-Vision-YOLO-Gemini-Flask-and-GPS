@@ -114,14 +114,21 @@ def api_analyze():
     """Body: {"image": "data:image/jpeg;base64,...", "lat": float, "lon": float}
     Used by the live webcam view — one frame at a time."""
     payload = request.get_json(force=True)
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "invalid image payload"}), 400
+
     data_url = payload.get("image", "")
     lat = payload.get("lat")
     lon = payload.get("lon")
 
+    if not data_url:
+        return jsonify({"error": "invalid image payload"}), 400
+
     if "," in data_url:
         data_url = data_url.split(",", 1)[1]
     try:
-        image_bytes = base64.b64decode(data_url)
+        image_bytes = base64.b64decode(data_url, validate=True)
     except Exception:
         return jsonify({"error": "invalid image payload"}), 400
 
