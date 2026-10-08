@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: postgresql://civicscan:civicscan@db:5432/civicscan
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: civicscan
+      POSTGRES_USER: civicscan
+      POSTGRES_PASSWORD: civicscan
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U civicscan -d civicscan"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgis_data:
