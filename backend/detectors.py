@@ -1,117 +1,178 @@
+```python
 """
-Wrapper around the 3 Roboflow-hosted RF-DETR *Workflows* (pothole, garbage,
-road encroachment). Each was built in Roboflow's Workflow builder (that's
-what the "-logic" suffix in each ID means), which uses a different call
-shape than a plain single model: POST JSON to
-    https://serverless.roboflow.com/{workspace_name}/workflows/{workflow_id}
-instead of the simpler /{model_id}/{version} form.
+CivicScan detector wrapper.
+Calls the single published Roboflow workflow containing all three models.
+"""
 
-All 3 workflows live under one Roboflow workspace, so they share
-ROBOFLOW_WORKSPACE + ROBOFLOW_API_KEY; each still has its own workflow id.
-"""
 import base64
 import os
+
 import requests
 
 ROBOFLOW_INFER_URL = "https://serverless.roboflow.com"
-
-DETECTOR_CONFIG = {
-    "pothole": {
-        "label": "Pothole",
-        "workflow_env": "ROBOFLOW_POTHOLE_WORKFLOW_ID",
-    },
-    "garbage": {
-        "label": "Garbage Area",
-        "workflow_env": "ROBOFLOW_GARBAGE_WORKFLOW_ID",
-    },
-    "encroachment": {
-        "label": "Road Encroachment",
-        "workflow_env": "ROBOFLOW_ENCROACHMENT_WORKFLOW_ID",
-    },
-}
+WORKFLOW_ID = "custom-workflow"
 
 
-def _find_predictions(obj, depth=0):
-    """Workflow output shape depends on how each workflow was built, so
-    instead of assuming a fixed key, walk the JSON and return the first
-    list of dicts that look like predictions (each has a 'confidence'
-    key). This makes us resilient to different workflow output schemas."""
-    if depth > 6:
-        return None
-    if isinstance(obj, list):
-        if obj and all(isinstance(i, dict) and "confidence" in i for i in obj):
-            return obj
+def _find_prediction_lists(obj, depth=0):
+    """Find nested prediction lists in a Roboflow workflow response."""
+    if depth > 8:
+        return []
+
+    found = []
+
+    if isinstance(obj, dict):
+        # Prefer the standard Roboflow detection structure.
+        predictions = obj.get("predictions")
+        if isinstance(predictions, list):
+            found.append(predictions)
+
+        for key, value in obj.items():
+            if key != "predictions":
+                found.extend(_find_prediction_lists(value, depth + 1))
+
+    elif isinstance(obj, list):
         for item in obj:
-            found = _find_predictions(item, depth + 1)
-            if found is not None:
-                return found
-    elif isinstance(obj, dict):
-        for value in obj.values():
-            found = _find_predictions(value, depth + 1)
-            if found is not None:
-                return found
-    return None
+            found.extend(_find_prediction_lists(item, depth + 1))
+
+    return found
 
 
-def _run_one_model(detector_key: str, image_bytes: bytes, timeout: int = 25):
-    """Call one Roboflow Workflow with a JPEG frame. Returns:
-    {"detector": key, "label": ..., "predictions": [...], "error": str|None}
-    """
-    cfg = DETECTOR_CONFIG[detector_key]
-    api_key = os.environ.get("ROBOFLOW_API_KEY")
-    workspace = os.environ.get("ROBOFLOW_WORKSPACE")
-    workflow_id = os.environ.get(cfg["workflow_env"])
+def _get_workflow_predictions(data):
+    """Extract predictions from the published workflow output."""
+    root = data.get("predictions", data) if isinstance(data, dict) else data
 
-    result = {"detector": detector_key, "label": cfg["label"], "predictions": [], "error": None}
+    # The current workflow exposes detections_combine_output.
+    if isinstance(root, dict):
+        combined = root.get("detections_combine_output")
+        if isinstance(combined, dict):
+            preds = combined.get("predictions")
+            if isinstance(preds, list):
+                return preds
 
-    if not api_key or "your_" in api_key:
-        result["error"] = "ROBOFLOW_API_KEY not configured"
-        return result
-    if not workspace or "your-" in workspace:
-        result["error"] = "ROBOFLOW_WORKSPACE not configured"
-        return result
-    if not workflow_id or "your-" in workflow_id:
-        result["error"] = f"{cfg['workflow_env']} not configured"
-        return result
+        # Support the second combine block if that is the final output.
+        combined = root.get("detections_combine_1_output")
+        if isinstance(combined, dict):
+            preds = combined.get("predictions")
+            if isinstance(preds, list):
+                return preds
 
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-    url = f"{ROBOFLOW_INFER_URL}/{workspace}/workflows/{workflow_id}"
-    body = {
-        "api_key": api_key,
-        "inputs": {"image": {"type": "base64", "value": b64_image}},
-    }
-
-    try:
-        resp = requests.post(url, json=body, timeout=timeout)
-        resp.raise_for_status()
-        data = resp.json()
-        preds = _find_predictions(data)
-        result["predictions"] = preds or []
-        if preds is None:
-            result["error"] = (
-                "Workflow ran but no prediction list was found in the "
-                f"response — raw keys: {list(data.keys()) if isinstance(data, dict) else type(data)}"
-            )
-    except requests.exceptions.HTTPError as e:
-        body_text = ""
-        try:
-            body_text = e.response.text[:300]
-        except Exception:
-            pass
-        result["error"] = f"{e} — {body_text}"
-    except requests.exceptions.RequestException as e:
-        result["error"] = str(e)
-
-    return result
+    lists = _find_prediction_lists(root)
+    return max(lists, key=len) if lists else []
 
 
 def run_all_detectors(image_bytes: bytes):
-    """Run all 3 workflows against the same frame."""
-    return [_run_one_model(key, image_bytes) for key in DETECTOR_CONFIG]
+    """
+    Run the main workflow once, then group predictions by class label.
+    Keeps the result structure expected by app.py.
+    """
+    api_key = os.environ.get("ROBOFLOW_API_KEY")
+    workspace = os.environ.get("ROBOFLOW_WORKSPACE")
+
+    detector_labels = {
+        "pothole": "Pothole",
+        "garbage": "Garbage Area",
+        "encroachment": "Road Encroachment",
+    }
+
+    if not api_key or not workspace:
+        return [
+            {
+                "detector": key,
+                "label": label,
+                "predictions": [],
+                "error": "ROBOFLOW_API_KEY or ROBOFLOW_WORKSPACE is not configured",
+            }
+            for key, label in detector_labels.items()
+        ]
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    url = f"{ROBOFLOW_INFER_URL}/{workspace}/workflows/{WORKFLOW_ID}"
+
+    payload = {
+        "api_key": api_key,
+        "inputs": {
+            "image": {
+                "type": "base64",
+                "value": image_b64,
+            }
+        },
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=45)
+        response.raise_for_status()
+        data = response.json()
+        predictions = _get_workflow_predictions(data)
+
+        # Map the workflow's class names to CivicScan categories.
+        def category_for(class_name):
+            name = str(class_name).strip().lower()
+
+            if any(word in name for word in (
+                "pothole", "road damage", "crack"
+            )):
+                return "pothole"
+
+            if any(word in name for word in (
+                "garbage", "trash", "rubbish", "litter",
+                "waste", "bag", "dump"
+            )):
+                return "garbage"
+
+            if any(word in name for word in (
+                "encroachment", "roadside obstruction",
+                "obstruction", "illegal parking"
+            )):
+                return "encroachment"
+
+            return None
+
+        grouped = {key: [] for key in detector_labels}
+
+        for prediction in predictions:
+            if not isinstance(prediction, dict):
+                continue
+
+            category = category_for(
+                prediction.get("class", prediction.get("label", ""))
+            )
+
+            if category:
+                grouped[category].append(prediction)
+
+        return [
+            {
+                "detector": key,
+                "label": label,
+                "predictions": grouped[key],
+                "error": None,
+            }
+            for key, label in detector_labels.items()
+        ]
+
+    except (requests.RequestException, ValueError) as exc:
+        message = f"Roboflow workflow request failed: {exc}"
+        if isinstance(exc, requests.HTTPError) and exc.response is not None:
+            message += f" — {exc.response.text[:300]}"
+
+        return [
+            {
+                "detector": key,
+                "label": label,
+                "predictions": [],
+                "error": message,
+            }
+            for key, label in detector_labels.items()
+        ]
 
 
 def best_prediction(predictions):
-    """Given a predictions list, return the highest-confidence one."""
+    """Return the highest-confidence prediction."""
     if not predictions:
         return None
-    return max(predictions, key=lambda p: p.get("confidence", 0))
+
+    return max(
+        predictions,
+        key=lambda prediction: float(prediction.get("confidence", 0)),
+    )
+```
