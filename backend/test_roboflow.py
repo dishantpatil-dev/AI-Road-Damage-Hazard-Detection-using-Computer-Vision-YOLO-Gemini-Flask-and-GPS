@@ -1,12 +1,13 @@
+```python
 """
-Quick standalone test for each of the 3 Roboflow Workflows, independent
-of Flask/the browser. Run this first whenever a workflow isn't behaving —
-it prints the raw HTTP status and response body.
+Test CivicScan's main Roboflow pipeline independently of Flask.
 
 Usage:
-    python test_roboflow.py path/to/a/road/photo.jpg
+    python test_roboflow.py path/to/road_photo.jpg
 """
+
 import base64
+import json
 import os
 import sys
 
@@ -15,74 +16,77 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# This is a manual diagnostic script, not a pytest test module.
-__test__ = False
+WORKSPACE = os.getenv("ROBOFLOW_WORKSPACE")
+API_KEY = os.getenv("ROBOFLOW_API_KEY")
+WORKFLOW_ID = "custom-workflow"
 
-ROBOFLOW_INFER_URL = "https://serverless.roboflow.com"
-API_KEY = os.environ.get("ROBOFLOW_API_KEY")
-WORKSPACE = os.environ.get("ROBOFLOW_WORKSPACE")
-
-WORKFLOWS = {
-    "pothole": os.environ.get("ROBOFLOW_POTHOLE_WORKFLOW_ID"),
-    "garbage": os.environ.get("ROBOFLOW_GARBAGE_WORKFLOW_ID"),
-    "encroachment": os.environ.get("ROBOFLOW_ENCROACHMENT_WORKFLOW_ID"),
-}
+URL = f"https://serverless.roboflow.com/{WORKSPACE}/workflows/{WORKFLOW_ID}"
 
 
-def test_workflow(name, workflow_id, image_bytes):
-    print(f"\n=== {name} (workflow: {workflow_id}) ===")
-    if not workflow_id:
-        print("  SKIPPED — no workflow id set in .env")
-        return
-    url = f"{ROBOFLOW_INFER_URL}/{WORKSPACE}/workflows/{workflow_id}"
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-    body = {"api_key": API_KEY, "inputs": {"image": {"type": "base64", "value": b64_image}}}
-    try:
-        resp = requests.post(url, json=body, timeout=25)
-        print(f"  URL: {url}")
-        print(f"  HTTP {resp.status_code}")
-        text = resp.text[:800]
-        print(f"  Body: {text}")
-        if resp.status_code == 200:
-            try:
-                data = resp.json()
-                print(f"  Top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
-            except Exception:
-                pass
-    except requests.exceptions.RequestException as e:
-        print(f"  ERROR: {e}")
-
-
-if __name__ == "__main__":
+def main():
     if len(sys.argv) < 2:
         print("Usage: python test_roboflow.py path/to/image.jpg")
         sys.exit(1)
 
-    if not API_KEY:
-        print("ROBOFLOW_API_KEY is not set in .env — set it first.")
-        sys.exit(1)
-    if not WORKSPACE:
-        print(
-            "ROBOFLOW_WORKSPACE is not set in .env.\n"
-            "Find it: open any of your workflows in Roboflow -> 'Deploy Workflow' "
-            "-> the code snippet shown there has workspace_name=\"...\" — copy "
-            "that exact value into .env as ROBOFLOW_WORKSPACE."
-        )
+    if not API_KEY or not WORKSPACE:
+        print("Missing ROBOFLOW_API_KEY or ROBOFLOW_WORKSPACE in .env")
         sys.exit(1)
 
-    with open(sys.argv[1], "rb") as f:
-        img_bytes = f.read()
+    with open(sys.argv[1], "rb") as image_file:
+        encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
 
-    for name, workflow_id in WORKFLOWS.items():
-        test_workflow(name, workflow_id, img_bytes)
+    payload = {
+        "api_key": API_KEY,
+        "inputs": {
+            "image": {
+                "type": "base64",
+                "value": encoded_image
+            }
+        }
+    }
 
-    print(
-        "\nIf you see HTTP 200 -> check 'Top-level keys' printed above and tell "
-        "Claude what they are, so the prediction-extraction logic can be "
-        "pointed at the right field if needed.\n"
-        "If you see 401 -> ROBOFLOW_API_KEY is wrong.\n"
-        "If you see 404 -> ROBOFLOW_WORKSPACE or the workflow id is wrong.\n"
-        "If you see 405 -> this still isn't a Workflow id in the "
-        "workspace/workflow_id shape — double check on the 'Deploy Workflow' "
-        "page."
-    )
+    print(f"Testing main workflow: {WORKFLOW_ID}")
+    print(f"Workspace: {WORKSPACE}")
+    print("Sending image...")
+
+    try:
+        response = requests.post(URL, json=payload, timeout=60)
+
+        print(f"\nHTTP Status: {response.status_code}")
+        print("Response:")
+
+        try:
+            data = response.json()
+            print(json.dumps(data, indent=2)[:12000])
+
+            if response.ok:
+                predictions = (
+                    data.get("predictions", {})
+                    .get("detections_combine_output", {})
+                    .get("predictions", [])
+                )
+
+                print(f"\nCombined detections found: {len(predictions)}")
+
+                for prediction in predictions:
+                    print(
+                        f"- {prediction.get('class', 'unknown')}: "
+                        f"{prediction.get('confidence', 0):.2%} confidence"
+                    )
+
+                if not predictions:
+                    print(
+                        "No predictions at the expected path. "
+                        "Inspect the JSON above for the actual response structure."
+                    )
+
+        except ValueError:
+            print(response.text[:12000])
+
+    except requests.RequestException as error:
+        print(f"Request failed: {error}")
+
+
+if __name__ == "__main__":
+    main()
+```
