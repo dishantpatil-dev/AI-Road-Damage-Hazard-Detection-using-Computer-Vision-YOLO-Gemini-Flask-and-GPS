@@ -11,7 +11,7 @@ import re
 import requests
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-DEFAULT_MODEL_PREFERENCE = ("gemini-2.5-flash", "gemini-2.0-flash")
+DEFAULT_MODEL_PREFERENCE = ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash")
 
 
 def _list_supported_models(api_key: str, timeout: int):
@@ -34,21 +34,18 @@ def _list_supported_models(api_key: str, timeout: int):
     return models
 
 
-def _choose_model(available_models, configured_model):
-    """Prefer the configured model, then known flash models, then any supported model."""
+def _ordered_models(available_models, configured_model):
+    """Try configured model first, then known current models, then remaining listed models."""
+    ordered = []
     if configured_model and configured_model in available_models:
-        return configured_model
+        ordered.append(configured_model)
     for model in DEFAULT_MODEL_PREFERENCE:
-        if model in available_models:
-            return model
-    flash_models = sorted(
-        (model for model in available_models if "flash" in model.lower()),
-        reverse=True,
-    )
-    if flash_models:
-        return flash_models[0]
-    return available_models[0] if available_models else None
-
+        if model in available_models and model not in ordered:
+            ordered.append(model)
+    for model in sorted(available_models, reverse=True):
+        if model not in ordered:
+            ordered.append(model)
+    return ordered
 
 
 PROMPT_TEMPLATE = (
@@ -102,8 +99,8 @@ def _gemini_verify(image_bytes: bytes, label: str, api_key: str, timeout: int):
         result["error"] = f"Could not retrieve supported Gemini models: {exc}"
         return result
 
-    model = _choose_model(available_models, configured_model)
-    if not model:
+    models_to_try = _ordered_models(available_models, configured_model)
+    if not models_to_try:
         result["error"] = (
             "This API key returned no models supporting generateContent. Check the "
             "key's project/API access in Google AI Studio."
@@ -121,18 +118,37 @@ def _gemini_verify(image_bytes: bytes, label: str, api_key: str, timeout: int):
         }],
         "generationConfig": {"temperature": 0.1},
     }
-    url = f"{GEMINI_BASE_URL}/models/{model}:generateContent"
-    try:
-        resp = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
-        resp.raise_for_status()
-        result.update(_parse_verdict(resp.json()))
-        result["model"] = model
-        if configured_model and model != configured_model:
-            result["reason"] = f"Used available model {model}. " + result["reason"]
-        return result
-    except (requests.exceptions.RequestException, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        result["error"] = f"Gemini verification failed using {model}: {exc}"
-        return result
+    not_found = []
+    for model in models_to_try:
+        url = f"{GEMINI_BASE_URL}/models/{model}:generateContent"
+        try:
+            # Header auth prevents the API key from appearing in request URLs/logs.
+            resp = requests.post(
+                url,
+                headers={"x-goog-api-key": api_key},
+                json=body,
+                timeout=timeout,
+            )
+            if resp.status_code == 404:
+                not_found.append(model)
+                continue
+            resp.raise_for_status()
+            result.update(_parse_verdict(resp.json()))
+            result["model"] = model
+            if configured_model and model != configured_model:
+                result["reason"] = f"Used available model {model}. " + result["reason"]
+            return result
+        except (requests.exceptions.RequestException, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            # Only model-not-found responses trigger another model attempt.
+            result["error"] = f"Gemini verification failed using {model}: {exc}"
+            return result
+
+    result["error"] = (
+        "All listed Gemini models returned 404 for generateContent: "
+        + ", ".join(not_found)
+        + ". Check the API key's project/model access in Google AI Studio."
+    )
+    return result
 
 
 def _heuristic_verify(roboflow_confidence: float, label: str):
