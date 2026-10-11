@@ -64,3 +64,179 @@ h1,h2{font-family:var(--display);margin:0;letter-spacing:-.045em}h1{font-size:cl
 }
 @media(max-width:1000px){.layout{grid-template-columns:1fr}.map-panel{min-height:650px}.capture-panel{padding:28px 22px}.map-header{padding:28px 22px 18px}.map-toolbar,.legend{padding-left:22px;padding-right:22px}}
 @media(max-width:600px){.topbar{height:auto;padding:16px 18px;gap:15px;align-items:flex-start}.header-right{flex-direction:column;align-items:flex-end;gap:8px}.system-pill{font-size:9px}.brand-name{font-size:15px}.section-heading{display:block}.status-badge{display:inline-block;margin-top:18px}.metrics-strip{grid-template-columns:1fr}.interval-label{margin-left:0}.map-panel{min-height:500px}.map-header{display:block}.map-stat{margin-top:15px}}
+
+/* ---------------------------------------------------------------
+   CivicScan UI refresh — smart-city operations center
+   Presentation-only overrides. Existing markup, IDs, and app logic
+   remain unchanged so camera, upload, API, GPS, and map behavior persist.
+---------------------------------------------------------------- */
+:root{
+  --bg:#0d1117;
+  --panel:#111821;
+  --panel-2:#18222e;
+  --line:rgba(163,178,198,.15);
+  --text:#e6edf3;
+  --muted:#91a0b3;
+  --orange:#6ea8fe;
+  --orange-2:#9fc5ff;
+  --cyan:#7db8c8;
+  --green:#72c49a;
+  --red:#e47777;
+  --display:'DM Sans',sans-serif;
+  --body:'DM Sans',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+html,body{background:var(--bg);color:var(--text)}
+.ambient{display:none}
+.topbar{
+  height:70px;padding:0 clamp(18px,3vw,44px);
+  background:#0f151d;border-bottom:1px solid #26313d;
+  backdrop-filter:none
+}
+.brand{gap:12px}
+.brand-mark{
+  width:34px;height:34px;border-radius:8px;
+  border:1px solid #3c536d;background:#172638;box-shadow:none
+}
+.brand-mark span{
+  width:13px;height:13px;border-radius:3px;
+  background:#8bbcff;box-shadow:none;transform:rotate(0deg)
+}
+.brand-name{font:700 19px var(--display);letter-spacing:-.035em;color:#edf3fa}
+.brand-name span{display:none}
+.brand-subtitle{font:500 9px var(--mono);letter-spacing:.13em;color:#8b9aab}
+.header-right{gap:14px}
+.system-pill{border-radius:6px;background:#141e29;border-color:#2a3746;color:#a8b5c5}
+.dot-ok,.loc-dot.ok{box-shadow:none}
+.dot-error,.loc-dot.error{box-shadow:none}
+.live-clock{color:#a7c8f4;letter-spacing:.02em}
+.layout{
+  grid-template-columns:minmax(420px,.94fr) 1.06fr;
+  gap:1px;background:#26313d;min-height:calc(100vh - 70px)
+}
+.panel{background:#111821}
+.capture-panel{padding:30px clamp(20px,2.6vw,40px)}
+.section-heading{margin-bottom:24px;align-items:flex-start}
+.eyebrow{color:#8bbcff;font-size:9px;letter-spacing:.14em;margin-bottom:9px}
+h1{font-size:clamp(25px,2.5vw,35px);letter-spacing:-.04em;line-height:1.14}
+h1 span{color:#9aaabd}
+h2{font-size:21px;letter-spacing:-.025em}
+.section-copy{font-size:13px;line-height:1.65;color:#9aa8b8;max-width:390px}
+.status-badge{
+  border:1px solid #315344;border-radius:5px;color:#8dd6ad;
+  background:#14251e;padding:7px 9px;font-size:9px
+}
+.status-badge i{background:#72c49a;box-shadow:none}
+.tabs{gap:6px;margin-bottom:14px}
+.tab{
+  border-radius:6px;padding:10px 13px;background:#141d27;
+  border-color:#2a3644;color:#a0adbd;transition:background .16s,border-color .16s,color .16s
+}
+.tab:hover{border-color:#536b85;color:#e6edf3}
+.tab.active{
+  background:#1b2b3e;border-color:#52739a;color:#c5ddff;box-shadow:none
+}
+.video-frame{
+  border-radius:8px;border-color:#34404d;background:#080c11;
+  box-shadow:none;aspect-ratio:16/10
+}
+.video-placeholder{color:#647386;letter-spacing:.13em}
+.camera-glyph{color:#45566a}
+.video-placeholder small{color:#738195}
+.scan-grid{background-image:linear-gradient(rgba(125,164,207,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(125,164,207,.025) 1px,transparent 1px)}
+.scan-overlay.scanning{border-color:rgba(110,168,254,.6);box-shadow:inset 0 0 25px rgba(110,168,254,.06)}
+.scanning .scan-beam{background:linear-gradient(90deg,transparent,#8bbcff,transparent);box-shadow:none}
+.feed-label{color:#c0ccda;letter-spacing:.07em}
+.feed-label b{color:#8797aa}
+.pulse-dot,.live-dot{background:#8bbcff;box-shadow:none}
+.feed-corner{border-color:rgba(210,224,241,.35)}
+.controls-row{gap:8px;margin-top:14px}
+.btn{border-radius:6px;padding:11px 14px;font-size:12px;transition:background .16s,border-color .16s,color .16s}
+.btn:hover:not(:disabled){transform:none}
+.btn-primary{background:#7eafea;color:#0b1521;box-shadow:none}
+.btn-primary:hover:not(:disabled){background:#9bc5fb;box-shadow:none}
+.btn-ghost{background:#17212c;border-color:#34404d;color:#c1ccd8}
+.btn-ghost:hover:not(:disabled){border-color:#5d7897;color:#f1f6fc}
+.interval-label{font-size:9px}
+.interval-label input,.manual-loc input{background:#151f2a;border-color:#34404d;border-radius:5px}
+.interval-label input:focus,.manual-loc input:focus{border-color:#7eafea}
+.location-row{font-size:10px;color:#9aa8b8}
+.location-chip{border-radius:4px;color:#a0b2c6;border-color:#34404d}
+.upload-drop{
+  border-color:#405064;border-radius:8px;background:#131c26;
+  transition:border-color .16s,background .16s
+}
+.upload-drop:hover,.upload-drop.drag-over{border-color:#7eafea;background:#172638}
+.upload-icon{color:#9bc5fb}
+.link-text{color:#9bc5fb}
+.file-name{color:#8dd6ad}
+.manual-loc label{color:#a6b3c2}
+.hint-text{color:#a6b3c2}
+.metrics-strip{gap:10px;margin-top:24px}
+.metric{
+  gap:10px;padding:13px;border:1px solid #2b3744;border-radius:7px;
+  background:#141d27
+}
+.metric-icon{width:29px;height:29px;border-radius:6px}
+.metric-icon.orange{background:#1b2b3e;color:#a8ccff}
+.metric-icon.blue{background:#1b2b32;color:#8ec7d6}
+.metric-icon.green{background:#192b23;color:#8dd6ad}
+.metric b{font:600 19px var(--display);letter-spacing:-.02em}
+.metric small{font-size:8px;color:#9aa8b8;letter-spacing:.06em}
+.log-panel{margin-top:25px;border-top-color:#2b3744;padding-top:17px}
+.log-header{font:600 12px var(--body);letter-spacing:0}
+.log-counter{color:#9aa8b8}
+.log-list{gap:6px;max-height:270px}
+.log-empty{color:#8292a5}
+.log-entry{
+  padding:11px 12px;border:1px solid #2b3744;border-left:2px solid #46576a;
+  border-radius:6px;background:#141d27;font-size:11px;animation:none
+}
+.log-entry.confirmed{border-left-color:#7eafea}
+.log-entry.rejected{border-left-color:#7db8c8}
+.log-entry.error{border-left-color:#e47777}
+.log-entry .msg{color:#a0adbd}
+.tag-confirmed{background:#20334a;color:#b8d6ff}
+.tag-rejected{background:#1c3037;color:#a4d4df}
+.tag-error{background:#382426;color:#f0a0a0}
+.map-panel{background:#111821}
+.map-header{padding:30px 30px 20px}
+.map-stat{color:#b4d2fa;font-size:10px}
+.map-stat-dot{background:#8bbcff;box-shadow:none}
+.map-toolbar{
+  padding:0 30px 13px;color:#9aa8b8;font-size:9px;
+  letter-spacing:.1em
+}
+#map{background:#101923;min-height:390px}
+.legend{gap:22px;padding:15px 30px;border-top-color:#2b3744;color:#aab6c4}
+.swatch-pothole,.swatch-garbage,.swatch-encroachment{box-shadow:none}
+.swatch-pothole{background:#e5a86c}
+.swatch-garbage{background:#7db8c8}
+.swatch-encroachment{background:#8bbcff}
+.leaflet-container{background:#101923}
+.leaflet-tile{filter:brightness(.82) saturate(.65)}
+.leaflet-control-zoom a{background:#18222e!important;color:#d4deea!important;border-color:#34404d!important}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#18222e;color:#e6edf3;box-shadow:0 8px 24px #0005}
+.leaflet-popup-content{font-size:12px}
+.pin-glyph{box-shadow:0 1px 4px #0005!important}
+@media(max-width:1000px){
+  .layout{grid-template-columns:1fr}
+  .map-panel{min-height:620px}
+  .capture-panel{padding:26px 22px}
+  .map-header{padding:26px 22px 18px}
+  .map-toolbar,.legend{padding-left:22px;padding-right:22px}
+}
+@media(max-width:600px){
+  .topbar{height:auto;padding:14px 16px;gap:12px}
+  .header-right{gap:7px}
+  .brand-name{font-size:17px}
+  .brand-subtitle{font-size:8px;letter-spacing:.08em}
+  .system-pill{font-size:8px;padding:7px 9px}
+  .section-heading{display:block}
+  .status-badge{display:inline-block;margin-top:15px}
+  .metrics-strip{grid-template-columns:1fr}
+  .interval-label{margin-left:0}
+  .map-panel{min-height:500px}
+  .map-header{display:block}
+  .map-stat{margin-top:13px}
+}
