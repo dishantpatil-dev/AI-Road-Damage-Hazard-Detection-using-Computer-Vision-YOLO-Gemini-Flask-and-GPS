@@ -1,4 +1,3 @@
-```python
 """
 Test CivicScan's main Roboflow pipeline independently of Flask.
 
@@ -89,4 +88,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
