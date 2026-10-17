@@ -283,6 +283,29 @@ function updatePinCount() {
   document.getElementById('pinCount').textContent = `${pinLayer.getLayers().length} pinned`;
 }
 
+const clearPinsBtn = document.getElementById("clearPinsBtn");
+if (clearPinsBtn) {
+  clearPinsBtn.addEventListener("click", async () => {
+    if (!window.confirm("Delete all saved map pins? This cannot be undone. Detection logs and uploaded images will be kept.")) return;
+    clearPinsBtn.disabled = true;
+    const originalText = clearPinsBtn.textContent;
+    clearPinsBtn.textContent = "Clearing…";
+    try {
+      const response = await fetch("/api/pins", { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || "Could not clear pins.");
+      pinLayer.clearLayers();
+      updatePinCount();
+      logEntry({ status: "confirmed", label: "Map pins", message: `Cleared ${result.deleted} saved pin(s).` });
+    } catch (error) {
+      logEntry({ status: "error", label: "Clear pins", message: error.message || "Could not clear saved pins." });
+    } finally {
+      clearPinsBtn.disabled = false;
+      clearPinsBtn.textContent = originalText;
+    }
+  });
+}
+
 async function loadExistingPins() {
   try {
     const res = await fetch('/api/pins');

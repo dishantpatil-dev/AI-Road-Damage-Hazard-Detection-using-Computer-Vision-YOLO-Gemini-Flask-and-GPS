@@ -217,6 +217,17 @@ def api_pins():
     return jsonify({"pins": storage.get_pins()})
 
 
+@app.route("/api/pins", methods=["DELETE"])
+def api_clear_pins():
+    """Delete saved map pins only; keep uploaded frames and detection logs."""
+    deleted_count = storage.clear_pins()
+    return jsonify({
+        "success": True,
+        "deleted": deleted_count,
+        "message": f"Cleared {deleted_count} saved pin(s).",
+    })
+
+
 @app.route("/api/status", methods=["GET"])
 def api_status():
     gemini_key = os.environ.get("GOOGLE_API_KEY")

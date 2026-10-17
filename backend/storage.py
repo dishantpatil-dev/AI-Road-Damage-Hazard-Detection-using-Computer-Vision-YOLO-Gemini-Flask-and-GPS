@@ -50,3 +50,15 @@ def get_pins():
     with _lock:
         with open(PINS_FILE, "r") as f:
             return json.load(f)
+
+
+
+def clear_pins():
+    """Remove all saved pin records and return how many were removed."""
+    _ensure_store()
+    with _lock:
+        with open(PINS_FILE, "r") as f:
+            pins = json.load(f)
+        with open(PINS_FILE, "w") as f:
+            json.dump([], f, indent=2)
+    return len(pins)

@@ -160,3 +160,23 @@ def test_analyze_rejects_non_object_json(client):
     assert response.get_json() == {
         "error": "invalid image payload"
     }
+
+
+
+def test_delete_pins_clears_storage(client, monkeypatch):
+    cleared = {}
+
+    def fake_clear_pins():
+        cleared["called"] = True
+        return 3
+
+    monkeypatch.setattr(app.storage, "clear_pins", fake_clear_pins, raising=False)
+    response = client.delete("/api/pins")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "success": True,
+        "deleted": 3,
+        "message": "Cleared 3 saved pin(s).",
+    }
+    assert cleared["called"] is True

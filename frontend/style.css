@@ -240,3 +240,11 @@ h2{font-size:21px;letter-spacing:-.025em}
   .map-header{display:block}
   .map-stat{margin-top:13px}
 }
+
+
+/* Clear saved map pins control */
+.map-toolbar-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.btn-danger{background:#382426;border-color:#704044;color:#ffb2b2}
+.btn-danger:hover:not(:disabled){background:#4a2b2e;border-color:#a45b62;color:#ffe0e0}
+.btn-danger:disabled{opacity:.65;cursor:wait}
+@media(max-width:600px){.map-toolbar{align-items:flex-start;gap:10px;flex-wrap:wrap}.map-toolbar-actions{width:100%;justify-content:space-between}.map-toolbar-actions .map-coordinates{font-size:8px}}
