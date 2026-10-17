@@ -97,10 +97,10 @@ def _register_rate_limit(response):
 
 
 def _record_gemini_success():
-    global _consecutive_429s, _cooldown_until
+    global _consecutive_429s
     with _request_state_lock:
+        # Do not clear a cooldown opened by a concurrent request that got 429.
         _consecutive_429s = 0
-        _cooldown_until = 0.0
 
 
 def _cached_supported_models(api_key: str, timeout: int):
