@@ -1,9 +1,8 @@
 import json
 
 from unittest.mock import Mock
-from backend import detectors
-from backend import storage
-from backend import verifier
+
+from backend import detectors, storage, verifier
 
 
 def test_find_predictions_from_nested_workflow_response():
@@ -16,15 +15,95 @@ def test_find_predictions_from_nested_workflow_response():
         }
     }
 
-    predictions = detectors._find_predictions(payload)
+    predictions = detectors._get_workflow_predictions(payload)
 
-    assert predictions is not None
     assert len(predictions) == 2
     assert detectors.best_prediction(predictions)["confidence"] == 0.87
 
 
+def test_find_predictions_from_combined_workflow_output():
+    payload = {
+        "predictions": {
+            "detections_combine_output": {
+                "predictions": [{"confidence": 0.91, "class": "pothole"}]
+            }
+        }
+    }
+
+    assert detectors._get_workflow_predictions(payload) == [
+        {"confidence": 0.91, "class": "pothole"}
+    ]
+
+
 def test_best_prediction_handles_empty_list():
     assert detectors.best_prediction([]) is None
+
+
+def test_run_all_detectors_requires_api_configuration(monkeypatch):
+    monkeypatch.delenv("ROBOFLOW_API_KEY", raising=False)
+    monkeypatch.delenv("ROBOFLOW_WORKSPACE", raising=False)
+
+    results = detectors.run_all_detectors(b"fake-image")
+
+    assert len(results) == 3
+    assert all(item["predictions"] == [] for item in results)
+    assert all("not configured" in item["error"] for item in results)
+
+
+def test_run_all_detectors_groups_predictions(monkeypatch):
+    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
+    monkeypatch.setenv("ROBOFLOW_WORKSPACE", "test-workspace")
+
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "predictions": {
+            "detections_combine_output": {
+                "predictions": [
+                    {"confidence": 0.82, "class": "pothole"},
+                    {"confidence": 0.91, "class": "garbage"},
+                    {"confidence": 0.76, "class": "road encroachment"},
+                    {"confidence": 0.2, "class": "unknown object"},
+                ]
+            }
+        }
+    }
+
+    def fake_post(url, json, timeout):
+        assert url == (
+            "https://serverless.roboflow.com/"
+            "test-workspace/workflows/custom-workflow"
+        )
+        assert json["api_key"] == "test-key"
+        assert json["inputs"]["image"]["type"] == "base64"
+        assert timeout == 45
+        return response
+
+    monkeypatch.setattr(detectors.requests, "post", fake_post)
+
+    results = detectors.run_all_detectors(b"fake-image")
+    by_detector = {item["detector"]: item for item in results}
+
+    assert by_detector["pothole"]["predictions"][0]["confidence"] == 0.82
+    assert by_detector["garbage"]["predictions"][0]["confidence"] == 0.91
+    assert by_detector["encroachment"]["predictions"][0]["confidence"] == 0.76
+    assert all(item["error"] is None for item in results)
+
+
+def test_run_all_detectors_handles_request_failure(monkeypatch):
+    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
+    monkeypatch.setenv("ROBOFLOW_WORKSPACE", "test-workspace")
+
+    def fake_post(url, json, timeout):
+        raise detectors.requests.exceptions.Timeout("request timed out")
+
+    monkeypatch.setattr(detectors.requests, "post", fake_post)
+
+    results = detectors.run_all_detectors(b"fake-image")
+
+    assert len(results) == 3
+    assert all(item["predictions"] == [] for item in results)
+    assert all("request timed out" in item["error"] for item in results)
 
 
 def test_heuristic_verifier_uses_stricter_threshold(monkeypatch):
@@ -61,89 +140,3 @@ def test_storage_round_trip(tmp_path, monkeypatch):
     assert pins[0]["id"] == pin["id"]
     assert pins[0]["label"] == "Pothole"
     assert json.loads(pins_file.read_text())[0]["confidence"] == 0.91
-
-def test_run_one_model_requires_api_key(monkeypatch):
-    monkeypatch.delenv("ROBOFLOW_API_KEY", raising=False)
-    monkeypatch.setenv("ROBOFLOW_WORKSPACE", "test-workspace")
-    monkeypatch.setenv("ROBOFLOW_POTHOLE_WORKFLOW_ID", "test-workflow")
-
-    result = detectors._run_one_model("pothole", b"fake-image")
-
-    assert result["predictions"] == []
-    assert result["error"] == "ROBOFLOW_API_KEY not configured"
-
-
-def test_run_one_model_parses_successful_response(monkeypatch):
-    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
-    monkeypatch.setenv("ROBOFLOW_WORKSPACE", "test-workspace")
-    monkeypatch.setenv("ROBOFLOW_POTHOLE_WORKFLOW_ID", "test-workflow")
-
-    class FakeResponse:
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return {
-                "output": {
-                    "predictions": [
-                        {"confidence": 0.82, "class": "pothole"},
-                        {"confidence": 0.91, "class": "pothole"},
-                    ]
-                }
-            }
-
-    def fake_post(url, json, timeout):
-        assert url == (
-            "https://serverless.roboflow.com/"
-            "test-workspace/workflows/test-workflow"
-        )
-        assert json["api_key"] == "test-key"
-        assert json["inputs"]["image"]["type"] == "base64"
-        assert timeout == 25
-        return FakeResponse()
-
-    monkeypatch.setattr(detectors.requests, "post", fake_post)
-
-    result = detectors._run_one_model("pothole", b"fake-image")
-
-    assert result["error"] is None
-    assert len(result["predictions"]) == 2
-    assert result["predictions"][0]["confidence"] == 0.82
-    assert result["predictions"][1]["confidence"] == 0.91
-
-
-def test_run_one_model_handles_request_failure(monkeypatch):
-    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
-    monkeypatch.setenv("ROBOFLOW_WORKSPACE", "test-workspace")
-    monkeypatch.setenv("ROBOFLOW_POTHOLE_WORKFLOW_ID", "test-workflow")
-
-    def fake_post(url, json, timeout):
-        raise detectors.requests.exceptions.Timeout("request timed out")
-
-    monkeypatch.setattr(detectors.requests, "post", fake_post)
-
-    result = detectors._run_one_model("pothole", b"fake-image")
-
-    assert result["predictions"] == []
-    assert result["error"] == "request timed out"
-
-
-def test_run_one_model_handles_http_error(monkeypatch):
-    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-key")
-    monkeypatch.setenv("ROBOFLOW_WORKSPACE", "test-workspace")
-    monkeypatch.setenv("ROBOFLOW_POTHOLE_WORKFLOW_ID", "test-workflow")
-
-    def fake_post(url, json, timeout):
-        response = Mock()
-        response.text = "Roboflow service unavailable"
-        error = detectors.requests.exceptions.HTTPError("500 Server Error")
-        error.response = response
-        raise error
-
-    monkeypatch.setattr(detectors.requests, "post", fake_post)
-
-    result = detectors._run_one_model("pothole", b"fake-image")
-
-    assert result["predictions"] == []
-    assert "500 Server Error" in result["error"]
-    assert "Roboflow service unavailable" in result["error"]

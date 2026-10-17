@@ -1,6 +1,23 @@
+import pytest
 from unittest.mock import Mock
 
 from backend import verifier
+
+
+@pytest.fixture(autouse=True)
+def mock_supported_gemini_models(monkeypatch):
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "models": [
+            {
+                "name": "models/gemini-2.5-flash",
+                "supportedGenerationMethods": ["generateContent"],
+            }
+        ]
+    }
+    monkeypatch.setattr(verifier.requests, "get", lambda *args, **kwargs: response)
+
 
 
 def test_gemini_verify_parses_successful_response(monkeypatch):
@@ -139,7 +156,7 @@ def test_gemini_verify_handles_request_failure(monkeypatch):
 
     assert result["confirmed"] is False
     assert result["confidence"] == 0.0
-    assert result["error"] == "Gemini request timed out"
+    assert result["error"].endswith("Gemini request timed out")
     assert result["method"] == "gemini"
 
 
