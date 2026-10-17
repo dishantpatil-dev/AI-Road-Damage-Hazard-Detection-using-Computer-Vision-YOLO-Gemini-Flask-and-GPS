@@ -6,6 +6,13 @@ from backend import verifier
 
 @pytest.fixture(autouse=True)
 def mock_supported_gemini_models(monkeypatch):
+    # Keep tests isolated from process-wide cache, pacing, and cooldown state.
+    monkeypatch.setattr(verifier, "_model_cache", {})
+    monkeypatch.setattr(verifier, "_next_request_at", 0.0)
+    monkeypatch.setattr(verifier, "_cooldown_until", 0.0)
+    monkeypatch.setattr(verifier, "_consecutive_429s", 0)
+    monkeypatch.setenv("GEMINI_MIN_REQUEST_INTERVAL_SECONDS", "0")
+
     response = Mock()
     response.raise_for_status.return_value = None
     response.json.return_value = {
@@ -373,3 +380,76 @@ def test_gemini_verify_rejects_non_object_json(monkeypatch):
     assert result["confirmed"] is False
     assert result["confidence"] == 0.0
     assert result["error"] is not None
+
+
+def test_gemini_verify_caches_model_discovery(monkeypatch):
+    model_response = Mock()
+    model_response.raise_for_status.return_value = None
+    model_response.json.return_value = {
+        "models": [
+            {
+                "name": "models/gemini-2.5-flash",
+                "supportedGenerationMethods": ["generateContent"],
+            }
+        ]
+    }
+    get_mock = Mock(return_value=model_response)
+    monkeypatch.setattr(verifier.requests, "get", get_mock)
+
+    success_response = Mock()
+    success_response.status_code = 200
+    success_response.raise_for_status.return_value = None
+    success_response.json.return_value = {
+        "candidates": [{
+            "content": {"parts": [{
+                "text": '{"confirmed": true, "confidence": 0.9, "reason": "Pothole visible"}'
+            }]}
+        }]
+    }
+    monkeypatch.setattr(verifier.requests, "post", Mock(return_value=success_response))
+
+    first = verifier._gemini_verify(b"image-1", "Pothole", "cache-test-key", 20)
+    second = verifier._gemini_verify(b"image-2", "Pothole", "cache-test-key", 20)
+
+    assert first["error"] is None
+    assert second["error"] is None
+    assert get_mock.call_count == 1
+
+
+def test_gemini_429_enters_cooldown_and_prevents_more_requests(monkeypatch):
+    model_response = Mock()
+    model_response.raise_for_status.return_value = None
+    model_response.json.return_value = {
+        "models": [
+            {
+                "name": "models/gemini-2.5-flash",
+                "supportedGenerationMethods": ["generateContent"],
+            }
+        ]
+    }
+    monkeypatch.setattr(verifier.requests, "get", Mock(return_value=model_response))
+
+    limited_response = Mock()
+    limited_response.status_code = 429
+    limited_response.headers = {"Retry-After": "30"}
+    post_mock = Mock(return_value=limited_response)
+    monkeypatch.setattr(verifier.requests, "post", post_mock)
+
+    first = verifier._gemini_verify(b"image-1", "Pothole", "rate-limit-test-key", 20)
+    second = verifier._gemini_verify(b"image-2", "Pothole", "rate-limit-test-key", 20)
+
+    assert first["confirmed"] is False
+    assert "rate limit reached" in first["error"].lower()
+    assert "30 seconds" in first["error"]
+    assert second["confirmed"] is False
+    assert "rate-limited" in second["error"].lower()
+    assert post_mock.call_count == 1
+
+
+def test_gemini_429_uses_bounded_backoff_when_retry_after_missing(monkeypatch):
+    limited_response = Mock()
+    limited_response.headers = {}
+    delay = verifier._register_rate_limit(limited_response)
+
+    assert delay == verifier._INITIAL_429_COOLDOWN_SECONDS
+    assert verifier._cooldown_until > 0
