@@ -160,3 +160,77 @@ def test_analyze_rejects_non_object_json(client):
     assert response.get_json() == {
         "error": "invalid image payload"
     }
+
+def _run_rate_limit_fallback_test(monkeypatch, confidence, error):
+    monkeypatch.setenv("HEURISTIC_CONFIRM_THRESHOLD", "0.65")
+
+    monkeypatch.setattr(
+        app.detectors,
+        "run_all_detectors",
+        lambda image: [
+            {
+                "detector": "pothole",
+                "label": "Pothole",
+                "error": None,
+                "predictions": [{"confidence": confidence}],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        app.detectors,
+        "best_prediction",
+        lambda predictions: predictions[0] if predictions else None,
+    )
+    monkeypatch.setattr(
+        app.verifier,
+        "verify_detection",
+        lambda *args, **kwargs: {
+            "confirmed": False,
+            "confidence": 0.0,
+            "reason": "",
+            "error": error,
+            "method": "gemini",
+        },
+    )
+
+    saved_pins = []
+    monkeypatch.setattr(app, "_save_frame", lambda image: "/uploads/test.jpg")
+
+    def fake_add_pin(**kwargs):
+        pin = {"id": "test-pin", **kwargs}
+        saved_pins.append(pin)
+        return pin
+
+    monkeypatch.setattr(app.storage, "add_pin", fake_add_pin)
+
+    outcomes = app.analyze_frame(b"fake-image", 18.76, 73.85)
+    return outcomes, saved_pins
+
+
+def test_rate_limit_fallback_confirms_high_confidence(monkeypatch):
+    outcomes, pins = _run_rate_limit_fallback_test(
+        monkeypatch, 0.90, "Gemini rate limit reached"
+    )
+
+    assert outcomes[0]["status"] == "confirmed"
+    assert "[heuristic-fallback]" in outcomes[0]["message"]
+    assert "Not Gemini-verified" in outcomes[0]["message"]
+    assert len(pins) == 1
+
+
+def test_rate_limit_fallback_rejects_low_confidence(monkeypatch):
+    outcomes, pins = _run_rate_limit_fallback_test(
+        monkeypatch, 0.50, "Gemini rate limit reached"
+    )
+
+    assert outcomes[0]["status"] == "error"
+    assert len(pins) == 0
+
+
+def test_rate_limit_fallback_does_not_handle_other_errors(monkeypatch):
+    outcomes, pins = _run_rate_limit_fallback_test(
+        monkeypatch, 0.90, "Gemini service unavailable"
+    )
+
+    assert outcomes[0]["status"] == "error"
+    assert len(pins) == 0
