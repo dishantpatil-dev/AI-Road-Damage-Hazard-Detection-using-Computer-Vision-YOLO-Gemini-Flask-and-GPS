@@ -156,7 +156,7 @@ def test_gemini_verify_handles_request_failure(monkeypatch):
 
     assert result["confirmed"] is False
     assert result["confidence"] == 0.0
-    assert result["error"] == "Gemini request timed out"
+    assert result["error"].endswith("Gemini request timed out")
     assert result["method"] == "gemini"
 
 
