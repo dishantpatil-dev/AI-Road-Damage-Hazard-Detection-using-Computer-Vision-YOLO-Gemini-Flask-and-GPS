@@ -262,6 +262,13 @@ def _gemini_verify(image_bytes: bytes, label: str, api_key: str, timeout: int):
             if resp.status_code == 404:
                 not_found.append(model)
                 continue
+            if resp.status_code == 429:
+                delay = _register_rate_limit(resp)
+                result["error"] = (
+                    f"Gemini rate limit reached using {model}; paused new requests "
+                    f"for about {int(delay + 0.999)} seconds."
+                )
+                return result
             resp.raise_for_status()
             result.update(_parse_verdict(resp.json()))
             _record_gemini_success()
