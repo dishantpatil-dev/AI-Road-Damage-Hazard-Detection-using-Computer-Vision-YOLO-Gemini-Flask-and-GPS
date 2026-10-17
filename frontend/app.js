@@ -12,6 +12,7 @@ let currentLat = null;
 let currentLon = null;
 let scanning = false;
 let scanTimer = null;
+let scanInFlight = false;
 let mediaStream = null;
 let map, pinLayer;
 
@@ -107,8 +108,12 @@ function captureFrameDataUrl() {
 }
 
 async function scanOnce() {
-  const dataUrl = captureFrameDataUrl();
+  // setInterval can fire again while a slow analysis is still running.
+  // Skip overlapping captures so one camera session cannot flood the backend.
+  if (!scanning || scanInFlight) return;
+  scanInFlight = true;
   try {
+    const dataUrl = captureFrameDataUrl();
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -119,6 +124,8 @@ async function scanOnce() {
     (data.results || []).forEach(r => { if (r.pin) addPinToMap(r.pin); });
   } catch (e) {
     logEntry({ status: 'error', label: 'Network', message: e.message });
+  } finally {
+    scanInFlight = false;
   }
 }
 
