@@ -61,13 +61,43 @@ def analyze_frame(image_bytes: bytes, lat, lon):
             image_bytes, det["label"], roboflow_confidence=top.get("confidence", 0)
         )
 
+        
         if verdict["error"]:
-            outcomes.append({
-                "detector": det["detector"], "label": det["label"],
-                "status": "error", "message": f"Verification error: {verdict['error']}",
-                "roboflow_confidence": top.get("confidence"),
-            })
-            continue
+            error_message = str(verdict["error"])
+            is_rate_limited = (
+                "rate-limit" in error_message.lower()
+                or "rate limited" in error_message.lower()
+            )
+
+            roboflow_confidence = float(top.get("confidence", 0) or 0)
+            heuristic_threshold = float(
+                os.environ.get("HEURISTIC_CONFIRM_THRESHOLD", 0.65)
+            )
+
+            if is_rate_limited and roboflow_confidence >= heuristic_threshold:
+                # Conservative fallback: this was NOT verified by Gemini.
+                verdict = {
+                    "confirmed": True,
+                    "confidence": roboflow_confidence,
+                    "reason": (
+                        "Heuristic fallback during Gemini rate limiting; "
+                        f"detector confidence {roboflow_confidence:.0%} "
+                        f"meets the {heuristic_threshold:.0%} threshold. "
+                        "Not Gemini-verified."
+                    ),
+                    "error": None,
+                    "method": "heuristic-fallback",
+                }
+            else:
+                outcomes.append({
+                    "detector": det["detector"],
+                    "label": det["label"],
+                    "status": "error",
+                    "message": f"Verification error: {error_message}",
+                    "roboflow_confidence": roboflow_confidence,
+                })
+                continue
+
 
         if verdict["confirmed"] and lat is not None and lon is not None:
             image_path = _save_frame(image_bytes)
