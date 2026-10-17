@@ -51,7 +51,8 @@ The goal is to make road-issue observations easier to review and visualize. Civi
 ## 🖥️ Demo
 
 <p align="center">
-  <img width="100%" src="https://github.com/user-attachments/assets/95deb616-a328-44ad-8b5f-a4a56fd651e9" alt="CivicScan road issue detection interface" />
+ <img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/6dfaf052-979c-4e06-87b2-4ac67c4368c4" />
+
 </p>
 
 Try the [CivicScan live demo](https://civicscan-road-intelligence.onrender.com).
